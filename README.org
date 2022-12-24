@@ -1,0 +1,12 @@
+#+NAME: Read Me
+#+AUTHOR: Dowland Aiello
+#+DATE: 12/24/22
+
+* Mirin
+
+Mirin is a dev server / file watcher for the Vision Beacon DAO. It attempts to lazily compile the Beacon DAO, and provide a live-refresh experience for development, without needing to deploy on-chain.
+
+** Usage
+#+BEGIN_SRC bash
+./mirin <path_to_beacon_dao_modules> --port <port>
+#+END_SRC

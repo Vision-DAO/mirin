@@ -1,0 +1,4 @@
+[*.rs]
+charset = utf_8
+indent_style = tab
+indent_size = 4
