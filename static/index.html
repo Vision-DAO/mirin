@@ -1,0 +1,49 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+</head>
+<body>
+	<script>
+		let prevChecksum = await fetch("/checksum");
+
+		// Reload the page every 300 ms if necessary
+		setInterval(() => {
+			let newChecksum = await fetch("/checksum");
+
+			if (newChecksum !== prevChecksum)
+				location.reload();
+		}, 300);
+
+		const blobifyEval = (src) =>
+			"data:text/javascript;charset=utf-8," + encodeURIComponent(src);
+
+		const mod = await fetch("/module");
+		const modLoaderSrc = await fetch("/loader");
+
+		if (mod === null || modLoaderSrc === null) {
+			console.error("Beacon DAO: Failed to load.");
+
+			return;
+		}
+
+		// Use the loader to start the WASM module
+		const maybeLoader = await import(
+			blobifyEval(
+				new TextDecoder().decode(modLoaderSrc)
+			)
+		);
+
+		await maybeLoader.default(mod);
+		const module = maybeLoader;
+
+		module.start();
+
+		if (module.impulse !== undefined) {
+			window.impulse = module.impulse;
+		}
+
+		if (module.poll !== undefined) setInterval(module.poll, 10);
+	</script>
+</body>
+</html>
+
