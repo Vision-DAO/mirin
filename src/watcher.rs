@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::{
 	collections::HashSet,
 	fmt::Debug,
-	fs::File,
+	fs::{canonicalize as fsabs, File},
 	io::Read,
 	path::{Path, PathBuf},
 	process::Command,
@@ -110,7 +110,7 @@ pub fn recompile(
 		return prev;
 	}
 
-	info!("recompiling {} targets", all_targets.len());
+	println!("\nrecompiling {} targets", all_targets.len());
 
 	for (target, _) in &all_targets {
 		Command::new("cargo")
@@ -162,7 +162,7 @@ pub fn recompile(
 	.read_to_end(&mut loader_buf)
 	.ok()?;
 
-	info!("compiled {} targets!", all_targets.len());
+	println!("\ncompiled {} targets!", all_targets.len());
 
 	Some(Update {
 		module: mod_buf,
@@ -193,7 +193,7 @@ pub fn watcher(dir: impl AsRef<Path>, mod_buff: Data<Mutex<Option<Update>>>) -> 
 		// Recompile all affected modules, and scheduler
 		.for_each(|e| {
 			fn is_terminal(pat: &Path, base_dir: &Path) -> Option<bool> {
-				Some(pat.parent()?.file_name()? == base_dir.file_name()?)
+				Some(fsabs(pat.parent()?).ok()? == fsabs(base_dir).ok()?)
 			}
 
 			fn terminal<'a>(pat: &'a Path, base_dir: &'a Path) -> Option<&'a Path> {
