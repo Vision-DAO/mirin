@@ -2,13 +2,17 @@ use actix_web::web::Data;
 use notify::{
 	Config, EventKind, RecommendedWatcher, RecursiveMode, Result as NotifyResult, Watcher,
 };
+use serde::{Deserialize, Serialize};
 use std::{
 	collections::HashSet,
-	path::Path,
+	fs::File,
+	io::Read,
+	path::{Path, PathBuf},
 	process::Command,
 	sync::{mpsc, Mutex},
 };
-use walkdir::{DirEntry, WalkDir};
+use toml::{map::Map, Value};
+use walkdir::WalkDir;
 
 #[derive(Clone)]
 pub struct Update {
@@ -17,10 +21,15 @@ pub struct Update {
 	pub nonce: usize,
 }
 
+#[derive(Serialize, Deserialize)]
+struct CargoToml {
+	dependencies: Map<String, Value>,
+}
+
 /// Recompiles the Beacon DAO, and the list of affected modules.
 /// Recompiles all targets if no affected list is provided.
 ///
-/// Returns the previous state if compilation failed.
+/// Returns None if compilation failed.
 pub fn recompile(
 	prev: Option<Update>,
 	affected: Vec<impl AsRef<Path>>,
@@ -38,44 +47,65 @@ pub fn recompile(
 		.collect::<HashSet<String>>();
 
 	// Find all members of beacon_dao that look like modules
-	let all_modules = WalkDir::new(dir)
-		.into_iter()
-		.filter_map(Result::ok)
-		// Get only modules that were altered, and that are modules
-		.filter_map(|ent| {
-			let fname = ent.file_name().to_str()?;
-			let mod_name = fname.split("_").last()?;
+	let all_modules = || {
+		WalkDir::new(&dir)
+			.into_iter()
+			.filter_map(Result::ok)
+			// Get only modules that were altered, and that are modules
+			.filter_map(|ent| {
+				let fname = ent.file_name().to_str()?;
+				let mod_name = fname.split("_").last()?.to_owned();
 
-			if fname.starts_with("beacon_dao-") {
-				Some(ent)
-			} else {
-				None
-			}
-		});
+				if fname.starts_with("beacon_dao-") {
+					Some((ent, mod_name))
+				} else {
+					None
+				}
+			})
+	};
 
 	// Include modules that have dependencies on any of the included modules
+	let dependents = all_modules()
+		.filter_map(|(ent, mod_name)| {
+			let mut cargo_path: PathBuf = PathBuf::from(ent.path().clone());
+			cargo_path.push("Cargo.toml");
 
-	let all_targets = WalkDir::new(dir)
-		.into_iter()
-		.filter_map(Result::ok)
-		// Get only modules that were altered, and that are modules
-		.filter_map(|ent| {
-			let fname = ent.file_name().to_str()?;
-			let mod_name = fname.split("_").last()?;
+			// Find the dependencies in the Cargo.toml
+			let mut buf = String::new();
+			File::open(cargo_path).ok()?.read_to_string(&mut buf);
 
-			if fname.starts_with("beacon_dao-")
-				&& (included.contains(mod_name) || included.is_empty())
+			let conf: CargoToml = toml::from_str(buf.as_str()).ok()?;
+
+			// The module depends on one of the modified modules
+			// TODO: Make this recursive
+			if conf
+				.dependencies
+				.keys()
+				.cloned()
+				.collect::<HashSet<String>>()
+				.intersection(&included)
+				.next()
+				.is_some()
 			{
-				Some(ent)
-			} else {
-				None
+				return None;
 			}
+
+			Some(mod_name)
 		})
-		.collect::<Vec<DirEntry>>();
+		.collect::<HashSet<String>>();
+	let included = included
+		.union(&dependents)
+		.cloned()
+		.collect::<HashSet<String>>();
+
+	// Get only modules that were altered
+	let all_targets = all_modules()
+		.filter(|(_, mod_name)| included.contains(mod_name) || included.is_empty())
+		.collect::<Vec<_>>();
 
 	info!("recompiling {} targets", all_targets.len());
 
-	for target in all_targets {
+	for (target, _) in all_targets {
 		Command::new("cargo")
 			.args([
 				"build",
@@ -85,12 +115,51 @@ pub fn recompile(
 				"--features",
 				"module",
 			])
-			.current_dir(target.path)
+			.current_dir(target.path())
+			.output()
+			.expect("Failed to compile module");
 	}
 
 	// Always compile scheduler
+	Command::new("cargo")
+		.args(["make", "build_scheduler"])
+		.current_dir(&dir)
+		.output()
+		.expect("Failed to compile scheduler");
 
-	prev
+	// Read the compiled module and JS loader
+	let mut base = PathBuf::from(dir.as_ref());
+	base.push("beacon_dao-scheduler/pkg");
+
+	// Read the module source code
+	let mut mod_buf = Vec::new();
+	File::open({
+		let mut mpath = base.clone();
+		mpath.push("beacon_dao_scheduler_bg.wasm");
+
+		mpath
+	})
+	.ok()?
+	.read_to_end(&mut mod_buf)
+	.ok()?;
+
+	// Read the loader source code
+	let mut loader_buf = Vec::new();
+	File::open({
+		let mut lpath = base.clone();
+		lpath.push("beacon_dao_scheduler.js");
+
+		lpath
+	})
+	.ok()?
+	.read_to_end(&mut loader_buf)
+	.ok()?;
+
+	Some(Update {
+		module: mod_buf,
+		loader: loader_buf,
+		nonce: prev.map(|update| update.nonce).unwrap_or(0) + 1,
+	})
 }
 
 /// Waits for changes to modules, rebuilding the required parts of the beacon DAO.
@@ -110,7 +179,7 @@ pub fn watcher(dir: impl AsRef<Path>, mod_buff: Data<Mutex<Option<Update>>>) -> 
 		})
 		// Recompile all affected modules, and scheduler
 		.for_each(|e| {
-			let new_state = recompile(mod_buff.lock().unwrap().clone(), e.paths, dir);
+			let new_state = recompile(mod_buff.lock().unwrap().clone(), e.paths, &dir);
 			(*mod_buff.lock().unwrap()) = new_state;
 		});
 
