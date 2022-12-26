@@ -23,25 +23,29 @@ async fn main() -> io::Result<()> {
 	}
 
 	// Rebuild every time R gets pushed
-	let mod_buff = mod_buff.clone();
+	{
+		let mod_buff = mod_buff.clone();
 
-	thread::spawn(move || loop {
-		// Check for the letter R
-		let buffer = term.read_char().unwrap();
+		thread::spawn(move || loop {
+			// Check for the letter R
+			let buffer = term.read_char().unwrap();
 
-		println!("{}", buffer);
+			println!("{}", buffer);
 
-		// Trigger recompilation
-		if buffer == 'R' {
-			let new = recompile(
-				mod_buff.lock().unwrap().clone(),
-				<Vec<&str>>::new(),
-				&dao_path,
-			);
+			// Trigger recompilation
+			if buffer == 'R' {
+				let new = recompile(
+					mod_buff.lock().unwrap().clone(),
+					<Vec<&str>>::new(),
+					&dao_path,
+				);
 
-			(*mod_buff.lock().unwrap()) = new;
-		}
-	});
+				(*mod_buff.lock().unwrap()) = new;
+			}
+		});
+	}
+
+	println!("listening on http://0.0.0.0:3000");
 
 	HttpServer::new(|| {
 		App::new()

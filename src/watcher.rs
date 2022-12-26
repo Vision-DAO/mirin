@@ -1,6 +1,7 @@
 use actix_web::web::Data;
 use notify::{
-	Config, EventKind, RecommendedWatcher, RecursiveMode, Result as NotifyResult, Watcher,
+	event::ModifyKind, Config, EventKind, RecommendedWatcher, RecursiveMode,
+	Result as NotifyResult, Watcher,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -9,7 +10,7 @@ use std::{
 	fs::File,
 	io::Read,
 	path::{Path, PathBuf},
-	process::{Command, Stdio},
+	process::Command,
 	sync::{mpsc, Mutex},
 };
 use toml::{map::Map, Value};
@@ -105,20 +106,23 @@ pub fn recompile(
 		.filter(|(_, mod_name)| included.contains(mod_name) || included.is_empty())
 		.collect::<Vec<_>>();
 
+	if all_targets.is_empty() {
+		return prev;
+	}
+
 	info!("recompiling {} targets", all_targets.len());
 
-	for (target, _) in all_targets {
+	for (target, _) in &all_targets {
 		Command::new("cargo")
 			.args([
 				"build",
 				"--target",
-				"wasm32-unknown-unknkown",
+				"wasm32-unknown-unknown",
 				"--release",
 				"--features",
 				"module",
 			])
 			.current_dir(target.path())
-			.stdout(Stdio::inherit())
 			.output()
 			.expect("Failed to compile module");
 	}
@@ -127,7 +131,6 @@ pub fn recompile(
 	Command::new("cargo")
 		.args(["make", "build_scheduler"])
 		.current_dir(&dir)
-		.stdout(Stdio::inherit())
 		.output()
 		.expect("Failed to compile scheduler");
 
@@ -159,6 +162,8 @@ pub fn recompile(
 	.read_to_end(&mut loader_buf)
 	.ok()?;
 
+	info!("compiled {} targets!", all_targets.len());
+
 	Some(Update {
 		module: mod_buf,
 		loader: loader_buf,
@@ -178,7 +183,11 @@ pub fn watcher(dir: impl AsRef<Path>, mod_buff: Data<Mutex<Option<Update>>>) -> 
 		.filter_map(Result::ok)
 		// Deal only with events that can mutate the beacon DAO wasm
 		.filter_map(|e| match e.kind {
-			EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => Some(e),
+			EventKind::Create(_) | EventKind::Remove(_) => Some(e),
+			EventKind::Modify(ref m) => match m {
+				ModifyKind::Data(_) => Some(e),
+				_ => None,
+			},
 			_ => None,
 		})
 		// Recompile all affected modules, and scheduler
@@ -198,8 +207,20 @@ pub fn watcher(dir: impl AsRef<Path>, mod_buff: Data<Mutex<Option<Update>>>) -> 
 			let e = e
 				.paths
 				.iter()
+				.filter(|pat| {
+					pat.file_name()
+						.and_then(|fname| fname.to_str())
+						.map(|fname| fname.ends_with(".rs"))
+						.unwrap_or(false)
+				})
 				.filter_map(|pat| terminal(pat.as_path(), dir.as_ref()))
+				.filter(|pat| !pat.ends_with("target"))
 				.collect::<Vec<&Path>>();
+
+			if e.is_empty() {
+				return;
+			}
+
 			let new_state = recompile(mod_buff.lock().unwrap().clone(), e, &dir);
 			(*mod_buff.lock().unwrap()) = new_state;
 		});
