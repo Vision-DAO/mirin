@@ -191,7 +191,9 @@ pub fn watcher(dir: impl AsRef<Path>, mod_buff: Data<Mutex<Option<Update>>>) -> 
 			_ => None,
 		})
 		// Recompile all affected modules, and scheduler
-		.for_each(|e| {
+		.map(|e| {
+			let dir = fsabs(&dir).ok()?;
+
 			fn is_terminal(pat: &Path, base_dir: &Path) -> Option<bool> {
 				Some(fsabs(pat.parent()?).ok()? == fsabs(base_dir).ok()?)
 			}
@@ -204,26 +206,49 @@ pub fn watcher(dir: impl AsRef<Path>, mod_buff: Data<Mutex<Option<Update>>>) -> 
 				}
 			}
 
-			let e = e
+			// Checks that the path is a change under the /src directory,
+			// and that it is not outside the base dir
+			fn is_src(pat: &Path, base_dir: &Path) -> Option<bool> {
+				if !pat.starts_with(base_dir) {
+					return Some(false);
+				}
+
+				if pat.parent()?.file_name()? == "src" {
+					return Some(true);
+				}
+
+				is_src(pat.parent()?, base_dir)
+			}
+
+			// Convert each affected path to an absolute path
+			let paths = e
 				.paths
 				.iter()
-				.filter(|pat| {
-					pat.file_name()
-						.and_then(|fname| fname.to_str())
-						.map(|fname| fname.ends_with(".rs"))
-						.unwrap_or(false)
+				.filter_map(|pat| fsabs(pat).ok())
+				.collect::<Vec<PathBuf>>();
+
+			let e = paths
+				.iter()
+				.filter_map(|pat| {
+					if !is_src(pat.as_path(), dir.as_ref())? {
+						None
+					} else {
+						terminal(&pat, dir.as_ref())
+					}
 				})
-				.filter_map(|pat| terminal(pat.as_path(), dir.as_ref()))
 				.filter(|pat| !pat.ends_with("target"))
 				.collect::<Vec<&Path>>();
 
 			if e.is_empty() {
-				return;
+				return None;
 			}
 
 			let new_state = recompile(mod_buff.lock().unwrap().clone(), e, &dir);
 			(*mod_buff.lock().unwrap()) = new_state;
-		});
+
+			Some(())
+		})
+		.for_each(drop);
 
 	Ok(())
 }
