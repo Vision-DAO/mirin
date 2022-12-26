@@ -30,8 +30,6 @@ async fn main() -> io::Result<()> {
 			// Check for the letter R
 			let buffer = term.read_char().unwrap();
 
-			println!("{}", buffer);
-
 			// Trigger recompilation
 			if buffer == 'R' {
 				let new = recompile(
@@ -47,8 +45,9 @@ async fn main() -> io::Result<()> {
 
 	println!("listening on http://0.0.0.0:3000");
 
-	HttpServer::new(|| {
+	HttpServer::new(move || {
 		App::new()
+			.app_data(Data::clone(&mod_buff))
 			.service(index)
 			.service(checksum)
 			.service(loader)

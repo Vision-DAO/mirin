@@ -16,7 +16,7 @@ use std::{
 use toml::{map::Map, Value};
 use walkdir::WalkDir;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Update {
 	pub module: Vec<u8>,
 	pub loader: Vec<u8>,

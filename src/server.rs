@@ -1,26 +1,44 @@
 use crate::watcher::Update;
-use actix_web::{get, web::Data, Responder};
+use actix_web::{get, web::Data, HttpResponse, Responder};
 use std::sync::Mutex;
 
 #[get("/")]
 pub async fn index() -> impl Responder {
-	include_str!("../static/index.html")
+	HttpResponse::Ok()
+		.content_type("text/html")
+		.body(include_str!("../static/index.html"))
 }
 
 #[get("/module")]
-pub async fn module(data: Data<Mutex<Option<Update>>>) -> Option<impl Responder> {
-	data.lock()
-		.ok()?
+pub async fn module(data: Data<Mutex<Option<Update>>>) -> impl Responder {
+	if let Some(module) = data
+		.lock()
+		.ok()
 		.as_ref()
-		.map(|update| update.module.clone())
+		.and_then(|update| update.as_ref().map(|update| update.module.clone()))
+	{
+		HttpResponse::Ok()
+			.content_type("application/json")
+			.json(module)
+	} else {
+		HttpResponse::NotFound().body("Not Found")
+	}
 }
 
 #[get("/loader")]
-pub async fn loader(data: Data<Mutex<Option<Update>>>) -> Option<impl Responder> {
-	data.lock()
-		.ok()?
+pub async fn loader(data: Data<Mutex<Option<Update>>>) -> impl Responder {
+	if let Some(loader) = data
+		.lock()
+		.ok()
 		.as_ref()
-		.map(|update| update.loader.clone())
+		.and_then(|update| update.as_ref().map(|update| update.loader.clone()))
+	{
+		HttpResponse::Ok()
+			.content_type("application/json")
+			.json(loader)
+	} else {
+		HttpResponse::NotFound().body("Not Found")
+	}
 }
 
 #[get("/checksum")]

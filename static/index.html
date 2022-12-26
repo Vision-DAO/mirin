@@ -1,48 +1,79 @@
 <!DOCTYPE HTML>
 <html>
 <head>
+<style>
+	@import url('https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+
+	.root {
+		position: absolute;
+
+		top: 0;
+		bottom: 0;
+		left: 0;
+		right: 0;
+
+		height: 100vh;
+		width: 100vw;
+
+		background-color: #2f045b;
+	}
+
+	html, body {
+		width: 100vw;
+		height: 100vh;
+
+		margin: 0;
+
+		font-family: "Roboto", Helvetica, sans-serif;
+		color: var(--primary);
+	}
+</style>
 </head>
 <body>
+	<div class="root">
+	</div>
 	<script>
-		let prevChecksum = await fetch("/checksum");
+		(async () => {
+			let prevChecksum = await fetch("/checksum").then((resp) => resp.json());
 
-		// Reload the page every 300 ms if necessary
-		setInterval(() => {
-			let newChecksum = await fetch("/checksum");
+			// Reload the page every 300 ms if necessary
+			setInterval(async () => {
+				let newChecksum = await fetch("/checksum").then((resp) => resp.json());
 
-			if (newChecksum !== prevChecksum)
-				location.reload();
-		}, 300);
+				if (newChecksum !== prevChecksum)
+					location.reload();
+			}, 300);
 
-		const blobifyEval = (src) =>
-			"data:text/javascript;charset=utf-8," + encodeURIComponent(src);
+			const blobifyEval = (src) =>
+				"data:text/javascript;charset=utf-8," + encodeURIComponent(src);
 
-		const mod = await fetch("/module");
-		const modLoaderSrc = await fetch("/loader");
+			const mod = new Uint8Array(await fetch("/module").then((resp) => resp.json()));
+			const modLoaderSrc = new Uint8Array(await fetch("/loader").then((resp) => resp.json()));
 
-		if (mod === null || modLoaderSrc === null) {
-			console.error("Beacon DAO: Failed to load.");
+			if (mod === null || modLoaderSrc === null) {
+				console.error("Beacon DAO: Failed to load.");
 
-			return;
-		}
+				return;
+			}
 
-		// Use the loader to start the WASM module
-		const maybeLoader = await import(
-			blobifyEval(
-				new TextDecoder().decode(modLoaderSrc)
-			)
-		);
+			// Use the loader to start the WASM module
+			const maybeLoader = await import(
+				blobifyEval(
+					new TextDecoder().decode(modLoaderSrc)
+				)
+			);
 
-		await maybeLoader.default(mod);
-		const module = maybeLoader;
+			await maybeLoader.default(mod);
+			const module = maybeLoader;
 
-		module.start();
+			module.start();
 
-		if (module.impulse !== undefined) {
-			window.impulse = module.impulse;
-		}
+			if (module.impulse !== undefined) {
+				window.impulse = module.impulse;
+			}
 
-		if (module.poll !== undefined) setInterval(module.poll, 10);
+			if (module.poll !== undefined) setInterval(module.poll, 10);
+		})();
 	</script>
 </body>
 </html>
