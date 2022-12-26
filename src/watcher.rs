@@ -5,10 +5,11 @@ use notify::{
 use serde::{Deserialize, Serialize};
 use std::{
 	collections::HashSet,
+	fmt::Debug,
 	fs::File,
 	io::Read,
 	path::{Path, PathBuf},
-	process::Command,
+	process::{Command, Stdio},
 	sync::{mpsc, Mutex},
 };
 use toml::{map::Map, Value};
@@ -32,7 +33,7 @@ struct CargoToml {
 /// Returns None if compilation failed.
 pub fn recompile(
 	prev: Option<Update>,
-	affected: Vec<impl AsRef<Path>>,
+	affected: Vec<impl AsRef<Path> + Debug>,
 	dir: impl AsRef<Path>,
 ) -> Option<Update> {
 	// Get the beacon-dao_PART part of each excluded module
@@ -43,18 +44,19 @@ pub fn recompile(
 				.file_name()
 				.and_then(|fname| Some(fname.to_str()?.to_owned()))
 		})
-		.filter_map(|mod_name: String| mod_name.split("_").last().map(|part| part.to_owned()))
+		.filter_map(|mod_name: String| mod_name.split("-").last().map(|part| part.to_owned()))
 		.collect::<HashSet<String>>();
 
 	// Find all members of beacon_dao that look like modules
 	let all_modules = || {
 		WalkDir::new(&dir)
+			.max_depth(1)
 			.into_iter()
 			.filter_map(Result::ok)
 			// Get only modules that were altered, and that are modules
 			.filter_map(|ent| {
 				let fname = ent.file_name().to_str()?;
-				let mod_name = fname.split("_").last()?.to_owned();
+				let mod_name = fname.split("-").last()?.to_owned();
 
 				if fname.starts_with("beacon_dao-") {
 					Some((ent, mod_name))
@@ -72,7 +74,7 @@ pub fn recompile(
 
 			// Find the dependencies in the Cargo.toml
 			let mut buf = String::new();
-			File::open(cargo_path).ok()?.read_to_string(&mut buf);
+			File::open(cargo_path).ok()?.read_to_string(&mut buf).ok()?;
 
 			let conf: CargoToml = toml::from_str(buf.as_str()).ok()?;
 
@@ -81,16 +83,16 @@ pub fn recompile(
 			if conf
 				.dependencies
 				.keys()
-				.cloned()
+				.filter_map(|k| Some(k.split("-").last()?.to_owned()))
 				.collect::<HashSet<String>>()
 				.intersection(&included)
 				.next()
 				.is_some()
 			{
-				return None;
+				return Some(mod_name);
 			}
 
-			Some(mod_name)
+			None
 		})
 		.collect::<HashSet<String>>();
 	let included = included
@@ -116,6 +118,7 @@ pub fn recompile(
 				"module",
 			])
 			.current_dir(target.path())
+			.stdout(Stdio::inherit())
 			.output()
 			.expect("Failed to compile module");
 	}
@@ -124,6 +127,7 @@ pub fn recompile(
 	Command::new("cargo")
 		.args(["make", "build_scheduler"])
 		.current_dir(&dir)
+		.stdout(Stdio::inherit())
 		.output()
 		.expect("Failed to compile scheduler");
 
@@ -179,7 +183,24 @@ pub fn watcher(dir: impl AsRef<Path>, mod_buff: Data<Mutex<Option<Update>>>) -> 
 		})
 		// Recompile all affected modules, and scheduler
 		.for_each(|e| {
-			let new_state = recompile(mod_buff.lock().unwrap().clone(), e.paths, &dir);
+			fn is_terminal(pat: &Path, base_dir: &Path) -> Option<bool> {
+				Some(pat.parent()?.file_name()? == base_dir.file_name()?)
+			}
+
+			fn terminal<'a>(pat: &'a Path, base_dir: &'a Path) -> Option<&'a Path> {
+				if is_terminal(pat, base_dir).unwrap_or(false) {
+					Some(pat)
+				} else {
+					terminal(pat.parent()?, base_dir)
+				}
+			}
+
+			let e = e
+				.paths
+				.iter()
+				.filter_map(|pat| terminal(pat.as_path(), dir.as_ref()))
+				.collect::<Vec<&Path>>();
+			let new_state = recompile(mod_buff.lock().unwrap().clone(), e, &dir);
 			(*mod_buff.lock().unwrap()) = new_state;
 		});
 

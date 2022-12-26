@@ -1,10 +1,8 @@
-#[macro_use]
-extern crate log;
-
-use actix_web::{get, web::Data, App, HttpServer, Responder};
+use actix_web::{web::Data, App, HttpServer};
+use console::Term;
 use mirin::{
 	server::{checksum, index, loader, module},
-	watcher::{recompile, watcher, Update},
+	watcher::{recompile, watcher},
 };
 use std::{env, io, sync::Mutex, thread};
 
@@ -13,9 +11,37 @@ async fn main() -> io::Result<()> {
 	env_logger::init();
 
 	let dao_path = env::args().skip(1).next().expect("Missing beacon DAO path");
-	let mod_buff = Data::new(Mutex::new(recompile(None, vec![], dao_path)));
+	let mod_buff = Data::new(Mutex::new(recompile(None, <Vec<&str>>::new(), &dao_path)));
+	let term = Term::stdout();
 
-	thread::spawn(|| watcher(dao_path, mod_buff));
+	// Rebuild every time a file changes
+	{
+		let mod_buff = mod_buff.clone();
+		let dao_path = dao_path.to_owned();
+
+		thread::spawn(|| watcher(dao_path, mod_buff));
+	}
+
+	// Rebuild every time R gets pushed
+	let mod_buff = mod_buff.clone();
+
+	thread::spawn(move || loop {
+		// Check for the letter R
+		let buffer = term.read_char().unwrap();
+
+		println!("{}", buffer);
+
+		// Trigger recompilation
+		if buffer == 'R' {
+			let new = recompile(
+				mod_buff.lock().unwrap().clone(),
+				<Vec<&str>>::new(),
+				&dao_path,
+			);
+
+			(*mod_buff.lock().unwrap()) = new;
+		}
+	});
 
 	HttpServer::new(|| {
 		App::new()
