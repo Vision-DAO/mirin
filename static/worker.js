@@ -1,4 +1,7 @@
 onmessage = async (e) => {
+	const blobifyEval = (src) =>
+		"data:text/javascript;charset=utf-8," + encodeURIComponent(src);
+
 	// Use the loader to start the WASM module
 	const maybeLoader = await import(
 		blobifyEval(

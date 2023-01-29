@@ -44,9 +44,6 @@
 					location.reload();
 			}, 300);
 
-			const blobifyEval = (src) =>
-				"data:text/javascript;charset=utf-8," + encodeURIComponent(src);
-
 			const mod = new Uint8Array(await fetch("/module").then((resp) => resp.json()));
 			const modLoaderSrc = new Uint8Array(await fetch("/loader").then((resp) => resp.json()));
 
