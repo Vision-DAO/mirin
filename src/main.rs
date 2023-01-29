@@ -1,7 +1,7 @@
 use actix_web::{web::Data, App, HttpServer};
 use console::Term;
 use mirin::{
-	server::{checksum, index, loader, module},
+	server::{checksum, index, loader, module, worker},
 	watcher::{recompile, watcher},
 };
 use std::{env, io, sync::Mutex, thread};
@@ -52,6 +52,7 @@ async fn main() -> io::Result<()> {
 			.service(checksum)
 			.service(loader)
 			.service(module)
+			.service(worker)
 	})
 	.bind(("0.0.0.0", 3000))?
 	.run()
