@@ -53,8 +53,23 @@
 				return;
 			}
 
-			const worker = new Worker("worker.js");
-			worker.postMessage({ modLoaderSrc: modLoaderSrc, mod: mod });
+			// Use the loader to start the WASM module
+			const maybeLoader = await import(
+				blobifyEval(
+					new TextDecoder().decode(modLoaderSrc)
+				)
+			);
+
+			await maybeLoader.default(mod);
+			const module = maybeLoader;
+
+			module.start();
+
+			if (module.impulse !== undefined) {
+				window.impulse = module.impulse;
+			}
+
+			if (module.poll !== undefined) setInterval(module.poll, 10);
 		})();
 	</script>
 </body>
