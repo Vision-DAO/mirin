@@ -49,10 +49,3 @@ pub async fn checksum(data: Data<Mutex<Option<Update>>>) -> impl Responder {
 		.unwrap_or(0)
 		.to_string()
 }
-
-#[get("/worker.js")]
-pub async fn worker() -> impl Responder {
-	HttpResponse::Ok()
-		.content_type("application/javascript")
-		.body(include_str!("../static/worker.js"))
-}
