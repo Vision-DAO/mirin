@@ -10,7 +10,7 @@ use std::{
 	fs::{canonicalize as fsabs, File},
 	io::Read,
 	path::{Path, PathBuf},
-	process::Command,
+	process::{Command, Stdio},
 	sync::{mpsc, Mutex},
 };
 use toml::{map::Map, Value};
@@ -123,6 +123,8 @@ pub fn recompile(
 				"module",
 			])
 			.current_dir(target.path())
+			.stderr(Stdio::inherit())
+			.stdout(Stdio::inherit())
 			.output()
 			.expect("Failed to compile module");
 	}
@@ -131,6 +133,8 @@ pub fn recompile(
 	Command::new("cargo")
 		.args(["make", "build_scheduler"])
 		.current_dir(&dir)
+		.stderr(Stdio::inherit())
+		.stdout(Stdio::inherit())
 		.output()
 		.expect("Failed to compile scheduler");
 
