@@ -14,3 +14,4 @@ toml = "0.5.10"
 serde = { version = "1.0.151", features = ["derive"] }
 console = "0.15.2"
 serde_json = "1.0.91"
+actix-cors = "0.6.4"

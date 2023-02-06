@@ -1,3 +1,4 @@
+use actix_cors::Cors;
 use actix_web::{web::Data, App, HttpServer};
 use console::Term;
 use mirin::{
@@ -46,7 +47,10 @@ async fn main() -> io::Result<()> {
 	println!("listening on http://0.0.0.0:3000");
 
 	HttpServer::new(move || {
+		let cors = Cors::permissive();
+
 		App::new()
+			.wrap(cors)
 			.app_data(Data::clone(&mod_buff))
 			.service(index)
 			.service(checksum)
