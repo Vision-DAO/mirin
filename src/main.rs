@@ -47,15 +47,15 @@ async fn main() -> io::Result<()> {
 	println!("listening on http://0.0.0.0:3000");
 
 	HttpServer::new(move || {
-		let cors = Cors::permissive();
+		let cors = Cors::permissive().supports_credentials();
 
 		App::new()
-			.wrap(cors)
 			.app_data(Data::clone(&mod_buff))
 			.service(index)
 			.service(checksum)
 			.service(loader)
 			.service(module)
+			.wrap(cors)
 	})
 	.bind(("0.0.0.0", 3000))?
 	.run()
